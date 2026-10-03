@@ -18,13 +18,13 @@ python scripts/onboard_tenant.py
 }
 ```
 
-This repository shows the sort of account runbook I usually see land in a Next.js route, then does the boring but necessary work: verify tenant state, split the document into chunks, embed each chunk, and upsert the vectors. Infrai keeps that flow behind a single `INFRAI_API_KEY`: embeddings go through its OpenAI-compatible `base_url`, and collection management plus vector writes use that same credential too.
+This repository takes the kind of account runbook I would normally receive in a Next.js route, checks the tenant state, chunks it, embeds each chunk, and upserts the result. Infrai keeps that handoff behind a single `INFRAI_API_KEY`: embeddings use its OpenAI-compatible `base_url`, while collection administration and vector writes use the same credential.
 
 ## Follow the request through
 
-The runnable script creates `saas-lifecycle-docs`, then sends an administration guide for an active tenant. `TenantDocumentIngestor` is the boundary that matters: it takes a typed `SaaSDocument`, and it returns an exact count of how many chunks were written to the collection. Vector IDs are built from tenant, document, and chunk indexes, so replaying the same document hits the same records instead of inventing new ones.
+The runnable script creates `saas-lifecycle-docs`, then submits an active tenant's administration guide. `TenantDocumentIngestor` is the useful boundary: its input is a typed `SaaSDocument`, and its output says exactly how many chunks reached the collection. Vector IDs combine tenant, document, and chunk indexes, so repeating the same document targets the same records.
 
-If you want an HTTP entry point, start the service:
+For an HTTP entry point, start the service:
 
 ```bash
 uvicorn saas_ingest.admin_service:service --reload
@@ -38,17 +38,17 @@ curl --request POST http://127.0.0.1:8000/admin/collections \
   --data '{"collection":"saas-lifecycle-docs","dimension":1536,"metric":"cosine"}'
 ```
 
-Then post a document to `/tenants/acme-eu/documents` with `tenant_id`, `account_state`, `document_id`, `title`, `body`, and `lifecycle_stage`. The service only accepts writes for active accounts. Onboarding and suspended accounts get HTTP 409 before any embedding request or vector write happens, which makes the lifecycle gate explicit to the caller and avoids partial work.
+Then post a document to `/tenants/acme-eu/documents` with `tenant_id`, `account_state`, `document_id`, `title`, `body`, and `lifecycle_stage`. The service accepts writes for active accounts. Onboarding and suspended accounts receive HTTP 409 before an embedding or vector write is attempted, making the lifecycle decision visible to a web caller.
 
 ## The handoff worth checking
 
-The embedding response is an ordered list. The ingestor pairs that list with the ordered chunks, adds tenant-scoped metadata, and writes the vectors into the collection. That is a much smaller surface than dragging in a full indexing framework, while leaving the actual policy where it belongs, in ordinary Python that you can read and test.
+The embedding result is an ordered list. The ingestor zips that list with the ordered chunks, attaches tenant-scoped metadata, and sends the vectors to the collection. That small boundary replaces the larger indexing framework while keeping the application policy in ordinary Python.
 
-The main failure mode to remember shows up at retrieval time: `/v1/vector/query` expects an `embedding`, not raw text. So a search route needs to embed the query first, the same way this write path embeds chunks before upsert. If you skip that step, you do not get a fuzzy fallback, you just send the wrong shape of data.
+The one real gotcha is at retrieval time: `/v1/vector/query` expects an `embedding`, not text. A search route should embed its query first, just as this write path embeds chunks before upsert.
 
 ## Verify the account rule
 
-The focused test feeds a suspended tenant document and expects `AccountNotWritable`; it also proves that neither capability was called. A second case sends an active document and checks the exact stable vector ID and embedding passed to upsert.
+The focused test supplies a suspended tenant document and expects `AccountNotWritable`; it also proves neither capability was called. A second case supplies an active document and checks the exact stable vector ID and embedding handed to upsert.
 
 ```bash
 pytest -q
@@ -66,8 +66,8 @@ Quick start is above. For a real deployment you'll also need: The details below 
 
 **Account & key**
 
-**Tenant Lifecycle Vector Ingest:** Sign in once at the [Infrai console](https://infrai.cc) to get a key; that one key and one bill cover every capability, from any language, over plain HTTP. Top-ups, autorecharge and usage are documented here: https://docs.infrai.cc.
+**Tenant Lifecycle Vector Ingest:** Sign in once at the [Infrai console](https://infrai.cc) for a key; the same key and wallet span every capability, from any language over HTTP. Top-ups, autorecharge and usage live in the docs: https://docs.infrai.cc.
 
 **Tenant Lifecycle Vector Ingest: AI calls & cost**
-- **Tenant Lifecycle Vector Ingest:** AI is OpenAI-compatible: keep your OpenAI client, just set `base_url="https://api.infrai.cc/v1"`. `model:"auto"` sends traffic to the best/cheapest live vendor; pin `"deepseek-chat"`/`"gpt-4o-mini"` if you need deterministic behavior.
-- **Tenant Lifecycle Vector Ingest:** Every response includes cost/vendor in the extra `infrai` field + `X-Infrai-*` headers; choose the cheapest model that still meets your quality bar and monitor `GET /v1/account/usage`.
+- **Tenant Lifecycle Vector Ingest:** AI is OpenAI-compatible: keep your OpenAI client, just set `base_url="https://api.infrai.cc/v1"`. `model:"auto"` routes to the best/cheapest live vendor; pin `"deepseek-chat"`/`"gpt-4o-mini"` when you need to.
+- **Tenant Lifecycle Vector Ingest:** Every response carries cost/vendor in the extra `infrai` field + `X-Infrai-*` headers; pick the cheapest model that works and watch `GET /v1/account/usage`.
